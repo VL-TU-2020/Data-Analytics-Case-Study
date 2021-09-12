@@ -1,0 +1,438 @@
+---
+title: "General_Tasks_03"
+output:
+  html_document: 
+    theme: paper
+    toc: yes
+  pdf_document: 
+    toc: yes
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Install packages
+```{r, warning = FALSE, results="hide", message=FALSE}
+if (!require("readr")) install.packages("readr")       # Package needed to Import csv and txt files
+if (!require("dplyr")) install.packages("dplyr")       # Package needed to arrange filter etc 
+if (!require("tidyr")) install.packages("tidyr")
+if (!require("plotly")) install.packages("plotly")
+if (!require("fitdistrplus")) install.packages("fitdistrplus")
+if (!require("logspline")) install.packages("logspline")    
+
+```
+
+
+## Laden der benötigten Packages 
+
+```{r, warning = FALSE, results="hide", message=FALSE}
+library(dplyr)
+library(tidyr)
+library(plotly)
+library(readr)
+
+#Package zum finden von passenden Verteilungen
+library(fitdistrplus) 
+library(logspline)
+```
+
+
+
+## 1. Aufgabe
+
+
+
+Einlesen der Excel-Tabellen mithilfe von read.csv aus dem readr-Package
+
+```{r, warning = FALSE, message = FALSE, results="hide"}
+k7 <- read.csv("Data/Logistikverzug/Komponente_K7.csv", sep = ";")
+
+log_delay_k7 <- read.csv("Data/Logistikverzug/Logistikverzug_K7.csv")
+
+```
+
+
+
+
+
+
+Verbinden der eingelesenen Tabellen zu der neuen Tabelle logistic_delay
+
+```{r, warning = FALSE, message = FALSE, results="hide"}
+logistic_delay <- log_delay_k7
+
+logistic_delay <- logistic_delay %>%
+ 
+#inner-join wird gewählt, da es nur Sinn ergibt, Parts die in beiden Tabellen aufgeführt sind, für die weitere Bearbeitung zu betrachten
+  
+inner_join(k7, by = "IDNummer", suffix = c("_Eingang", "_Produktion"))
+ 
+
+```
+
+
+
+
+
+
+
+Für die weitere Berechnung müssen die Daten, die noch als String vorliegen, in den Datentyp Date geändert werden
+
+```{r, warning = FALSE, message = FALSE, results="hide"}
+
+logistic_delay <- logistic_delay %>%
+  mutate(Wareneingang = as.Date(Wareneingang, format = "%Y-%m-%d")) %>%
+  mutate(Produktionsdatum = as.Date(Produktionsdatum, format = "%Y-%m-%d"))
+
+```
+
+
+
+
+
+
+Neue Spalte erstellen in der der Verzug angegeben wird. Dabei werden die zwei Tage berücksichtigt, die für die zusammenstellung der Teile benötigt werden.
+
+```{r, warning = FALSE, message = FALSE, results="hide"}
+
+logistic_delay <- logistic_delay %>%
+  mutate(delay = Wareneingang - Produktionsdatum - 2) 
+
+```
+
+
+
+
+
+
+
+### a) Herausfinden und testen, welche Verteilung am besten zu den Daten passt.
+
+
+  Dazu wird das Vorgehen nach
+  [StackExange](https://stats.stackexchange.com/questions/132652/how-to-determine-which-distribution-fits-my-data-best) benutzt. Dabei wird das fitdistrplus-Package gebraucht.
+  
+  Zunächst wird der Cullen-and-Frey-Graph geplottet, um geeignete Kandidaten für die    
+  Verteilung zu finden. 
+
+```{r, warning = FALSE, message = FALSE}
+
+#Um descdist verwenden zu können, müssen die Einträge von delay numerisch sein
+
+logistic_delay <- logistic_delay %>%
+  mutate(delay = as.numeric(delay)) 
+
+
+descdist(logistic_delay$delay)
+
+```
+Laut dem Cullen-and-Frey-Graph würden als geeignete Kandiaten die Normalverteilung, die Weibull-Verteilung, die Gamma-Verteilung und die logarithmische Normalverteilung in Frage kommen.
+
+
+
+
+
+
+
+Nun werden die ausgewählten Kandidaten mit der fitdist-Funktion anhand der Daten getestet. 
+Es werden vier verschiedene Plots pro verteilungsart erstellt, welche dann optisch ausgewertet
+werden.
+```{r, warning = FALSE, message = FALSE, results="hide"}
+
+#Die jeweiligen Verteilungn werden für die Daten von "delay" berechnet 
+fit.norm <- fitdist(logistic_delay$delay, "norm")
+fit.weibull <- fitdist(logistic_delay$delay, "weibull")
+fit.gamma <- fitdist(logistic_delay$delay, "gamma")
+fit.lnorm <- fitdist(logistic_delay$delay, "lnorm")
+
+#Die Plots werden für die erstellten Verteilungen erzeugt.
+plot(fit.norm)
+plot(fit.weibull)
+plot(fit.gamma)
+plot(fit.lnorm)
+
+```
+
+```{r, warning = FALSE, message = FALSE}
+
+#Die Plots werden für die erstellten Verteilungen erzeugt.
+plot(fit.norm)
+plot(fit.weibull)
+plot(fit.gamma)
+plot(fit.lnorm)
+
+```
+
+
+Beim Vergleichen der Plots fällt am deutlichsten auf, dass beim Q-Q-Plot nur die logarithmische Normalverteilung ein zufriedenstellendes Ergebnis erzeugt und in den anderen Plots den anderen Kandidaten in nichts nachsteht.
+
+
+
+
+
+
+Um das vorläufige Ergebnis zu verifizieren wird nun ein weiterer Test durchgeführt. Dafür wird das Akaike-Informationskriterium bestimmt und mit einander verglichen. 
+
+```{r, warning = FALSE, message = FALSE}
+fit.weibull$aic
+fit.norm$aic
+fit.gamma$aic
+fit.lnorm$aic
+
+```
+Wie zu sehen ist, wird der niedrigste Wert für die logarithmische Normalverteilung ausgegeben. Also ergibt auch dieser Test, dass die logarithmische Normalverteilung am besten geeignet ist.
+
+
+
+
+
+
+### b) Berechnen des minmalen/maximalen Zeitverzugs
+
+```{r, warning = FALSE, message = FALSE}
+
+minimaler_Zeitverzug <- min(logistic_delay$delay)
+
+maximaler_Zeitverzug <- max(logistic_delay$delay)
+
+minimaler_Zeitverzug 
+
+maximaler_Zeitverzug 
+
+
+```
+
+Der minimale zeitverzug beträgt 2 Tage und der maximale zeitverzug beträgt 13 Tage.
+
+
+
+
+### c) Berechnen des durchschnittlichen Zeitverzugs
+
+```{r, warning = FALSE, message = FALSE}
+
+durchschnittlicher_zeitverzug <- mean(logistic_delay$delay)
+
+durchschnittlicher_zeitverzug
+
+```
+
+Der durchschnittliche zeitverzug beträgt 5.080437 Tage.
+
+
+
+
+
+### d) Erstellen des Plots der gewählten verteilung
+
+```{r, warning = FALSE, message = FALSE}
+
+density <- density(logistic_delay$delay)
+
+plot_ly (
+  logistic_delay,  
+  x = ~delay,
+  type = "histogram", mode = 'none', opacity=0.85, color='red') %>%
+  
+   layout(title = "Logistische Verzögerungen der Komponente K7",
+         xaxis = list(title = "Tage der Verzögerung",
+                      zeroline = FALSE),
+         yaxis = list(title = "Anzahl der Verzögerten Teile",
+                      zeroline = FALSE))
+
+
+```
+
+
+
+
+
+## 2. Aufgabe
+
+
+ - Das Datenbankkonzept heißt "relationale Datenbank"
+
+ - bei dem Konzept hat man mehrere Tabellen (Entitäten), die untereinander in einer Beziehung stehen können
+    (d.h. es gibt Einträge in einer Tabelle die einen Eintrag in einer anderen Tabelle referenzieren), dies wird durch sogenannte Fremdschlüssel realisiert
+ 
+ - dadurch dass man nicht alle Daten in einer großen Tabelle speichert, kann man auf die gewünschten Informationen zugreifen (einzelne Entitäten) anstelle auf die große Tabelle zuzugreifen und danach nach den gewünschten Informationen zu filtern -> kürzere Zugriffszeit und bessere Performanz, die in vielen Echtzeitsystemen gebraucht werden
+
+ - Wenn z.B. nur die Daten einer Datei gebraucht werden, würde es viel Arbeit erforden, diese     zunächst trennen zu müssen, wenn alle Daten in einer Datei aufgeführt werden
+
+ 
+ - Offensichtlich ist es viel übersichtlicher und ordentlicher viele Daten in ihre atomaren Werte zu teilen
+
+
+ - das Konzept nutzt Transaktionen, die dem ACID Prinzip folgen. Das bedeutet, dass mehrere Operationen auf solchen relationen Datenbanken nur dann vollendet und ausgeführt werden, wenn die Datenbank(en) sich danach immer noch in einem konsisten Zustand befindet. Dadurch bleiben Tabellen konsistent und Fehler werden minimiert
+ 
+ - das Konzept hat sich seit langer Zeit durchgesetzt. Es gibt SQL (und Ableitungen davon) als Sprache auf den Datenbanken, die mit relativ "einfacher" Syntax erlauben schnell Daten abzurufen/ zu selecten
+ 
+
+
+
+
+
+## 3. Aufgabe
+
+
+Einlesen der Excel-Tabelle der Zulassungen und der Tabelle der Komponenten der Fahrzeuge 
+
+```{r, warning = FALSE, message = FALSE, results="hide"}
+
+Zulassungen <- read.csv("Data/Zulassungen/Zulassungen_alle_Fahrzeuge.csv", sep = ";")
+
+OEM1_Typ_11 <- read.csv("Data/Fahrzeug/Bestandteile_Fahrzeuge_OEM1_Typ11.csv", sep = ";")
+
+OEM1_Typ_12 <- read.csv("Data/Fahrzeug/Bestandteile_Fahrzeuge_OEM1_Typ12.csv", sep = ";")
+
+OEM2_Typ_21 <- read.csv("Data/Fahrzeug/Bestandteile_Fahrzeuge_OEM2_Typ21.csv", sep = ";")
+
+OEM2_Typ_22 <- read.csv("Data/Fahrzeug/Bestandteile_Fahrzeuge_OEM2_Typ22.csv", sep = ";")
+
+
+
+```
+
+
+
+
+Prüfen, in welchen Autotypen das Teil K7 Anwendung findet
+
+```{r, warning = FALSE, message = FALSE}
+
+OEM1_Typ_11_K7 <- OEM1_Typ_11 %>%
+
+filter(substr(ID_Karosserie, start = 1, stop = 2) == "K7")
+
+nrow(OEM1_Typ_11_K7)
+
+
+OEM1_Typ_12_K7 <- OEM1_Typ_12 %>%
+
+filter(substr(ID_Karosserie, start = 1, stop = 2) == "K7")
+
+nrow(OEM1_Typ_12_K7)
+
+
+OEM2_Typ_21_K7 <- OEM2_Typ_21 %>%
+
+filter(substr(ID_Karosserie, start = 1, stop = 2) == "K7")
+
+nrow(OEM2_Typ_21_K7)
+
+
+OEM2_Typ_22_K7 <- OEM2_Typ_22 %>%
+
+filter(substr(ID_Karosserie, start = 1, stop = 2) == "K7")
+
+nrow(OEM2_Typ_22_K7)
+
+
+
+```
+Komponente K7 befindet sich nur in OEM-Typ-22-Fahrzeugen.
+
+
+
+
+
+
+Verbinden der eingelesenen Tabellen Zulassungen und OEM_Typ_22 zu der neuen Tabelle k7_Zulassungen
+
+```{r, warning = FALSE, message = FALSE}
+
+
+#Erst werden die Zulassungen nach der Gemeinde Dahlem (Eifel) gefiltert
+
+
+Zulassungen_Dahlem <- Zulassungen %>%
+
+filter(Gemeinden == "DAHLEM")
+
+
+#Inner-join wird gewählt, um nur die Daten zu erhalten, welche in beiden Tabellen vorkommen
+
+k7_Zulassungen_Dahlem <- Zulassungen_Dahlem %>%
+  
+inner_join(OEM2_Typ_22, by = c("IDNummer" = "ID_Fahrzeug")) 
+
+
+#Da die Tabelle jetzt nur noch Einträge von in Dahlem zugelassenen Autos mit K7-Komponenten enthält, können nun die Zeilen ausgezählt werden
+
+nrow(k7_Zulassungen_Dahlem)
+
+```
+In Dahlem (Eiffel) befinden sich 0 registrierte Autos mit der Komponente K7.
+
+
+
+
+
+
+
+
+## 4. Aufgabe
+```{r, warning = FALSE, message = FALSE}
+
+#Einlesen des benötigten Datatables
+Zulassungen <- read.csv("Data/Zulassungen/Zulassungen_alle_Fahrzeuge.csv", sep = ";")
+
+#Herausfinden der Datentypen der Attribute
+str(Zulassungen)
+
+
+```
+
+
+```{r, warning = FALSE, message = FALSE}
+#Erstellen der Tabelle als Dataframe
+Attribut <- c("x", "IDNummer", "Gemeinden", "Zulassung")
+
+Datentyp <- c("numeric", "character", "character", "character")
+
+Tabelle <- data.frame(Attribut, Datentyp)
+
+knitr::kable(Tabelle)
+
+
+```
+
+
+## 5. Aufgabe
+
+
+
+ - Eine einfache Möglichkeit Daten an Kunden weiterzugeben, ist über das World Wide Web oder
+   über eine App.
+ - Datenbanken auf einem dedizierten Server bilden eine sicheren Speicher für Daten und Zugriffsmanagement (nach Konfiguration)  
+ - Ein dedizierter Server nutzt all seine Ressourcen nur für den verwendeten Zweck, ein eigener Pc wird meist für viele verschiedene Zwecke. Außerdem gibt es Services mit denen man einen Server mieten kann, der rund um die Uhr läuft (Server sollte konstant laufen, um Anfragen der Application jederzeit anzunehmen und zu beantworten)
+ - Das große Datenvolumen würde den Speicherplatz eines PCs schnell aufbrauchen
+ - Dadurch könnte es sein, dass der Computer langsamer arbeitet und somit alle weiteren
+   Arbeitsprozesse bremst 
+ - Auf einem Computer ist die Wahrscheinlichkeit bei Weitem größer, dass die Aufzeichnungen
+   verloren gehen
+ - Nur Autorisierte Nutzer können auf die Daten des Servers zugreifen
+
+
+ 
+
+## 6. Aufgabe
+
+```{r, warning = FALSE, message = FALSE}
+# Die Part Nummer K5-112-1122-79 lässt auf die Komponente K5 schließen. K5 ist eine Karosserie, deshalb suchen wir alle Fahrzeuge mit der Karosserie "K5-112-1122-79". Wir nehmen den ersten Eintrag in der Spalte ID_Fahrzeug (es gibt nur ein Element in der Spalte ID_Fahrzeug nach dem Filtern, da es keine Duplikate gibt).
+
+b <- OEM1_Typ_12 %>% filter(ID_Karosserie == "K5-112-1122-79")
+
+#Aus b kann man lesen, dass "12-1-12-82" die ID des Fahrzeugs ist.
+id_vehicle <- b["ID_Fahrzeug"][[1]]
+
+#Die Karosserie ist in der Tabelle Bestandteile_OEM1_Typ12 vorhanden. Nun wird die Id des Fahrzeugs mit den Zulassungen verglichen um die Frage wo das Auto registriert ist zu beantworten
+HitRun <- filter(Zulassungen, IDNummer == id_vehicle)
+HitRunOrt <- HitRun[,3]
+HitRunOrt
+
+
+#Das Auto ist in ASCHERSLEBEN zugelassen
+```
+
